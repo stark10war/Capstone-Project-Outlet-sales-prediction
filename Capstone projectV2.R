@@ -282,27 +282,65 @@ abline(0,1)
 
 #Random forest
 set.seed(0)
-forest1<- randomForest(formula = Item_Outlet_Sales~., data = newtrain , ntree =100)
+colnames(newtrain)
+spl <- sample.split(newtrain$Item_Outlet_Sales, 0.7)
+forest_train<- newtrain[spl==TRUE,]
+forest_test<- newtrain[spl==FALSE,]
+
+
+forest1<- randomForest(formula = Item_Outlet_Sales~., data = forest_train , ntree =100)
 print(forest1)
 plot(forest1)
 summary(forest1)
+pred_forest1<- predict(forest1, newdata = forest_test)
 
-pred_forest1<- predict(forest1, newdata = newtrain)
+MAPE_Forest1<-MAPE(pred_forest1, forest_test$Item_Outlet_Sales)
+MAPE_Forest1
+RMSE_Forest1<-RMSE(pred_forest1, forest_test$Item_Outlet_Sales)
+RMSE_Forest1
+plot(forest_test$Item_Outlet_Sales, pred_forest1,col='blue', pch=16, ylab = "predicted", xlab = "Actual")
 
-MAPE_Forest1<-MAPE(pred_forest1, store_train1$Item_Outlet_Sales)
-
-RMSE_Forest1<-RMSE(pred_forest1, store_train1$Item_Outlet_Sales)
-
-plot(newtrain$Item_Outlet_Sales, pred_forest1,col='blue', pch=16, ylab = "predicted", xlab = "Actual")
 abline(0,1)
 
-attributes(forest1)
+#Getting variable importance in random forest
+variableimportance<-as.data.frame(forest1$importance)
+colnames(forest_train)
+names<-rownames(variableimportance)
+rownames(variableimportance)<- NULL
 
-forest1$predicted
+variableimportance<-cbind(names,variableimportance)
+variableimportance<- variableimportance[order(-variableimportance$IncNodePurity),]
+plot(variableimportance)
+
+#Automating random forest for different no of features
+RMSE_Forest1<- RMSE_Forest1[]
+MAPE_Forest1<- MAPE_Forest1[]
+plots<- plots[]
+for (i in 1:(length(colnames(forest_train))-1)) {
+i=6
+important_cols<-as.integer(rownames(head(variableimportance,i)))
+important_forest_train<- subset(forest_train[,-4], select = c(important_cols))
+important_forest_train<- cbind(important_forest_train, forest_train[,4])
+
+forest1<- randomForest(formula = Item_Outlet_Sales~., data = important_forest_train , ntree =100)
+#print(forest1)
+#plot(forest1)
+#summary(forest1)
+pred_forest1<- predict(forest1, newdata = forest_test)
+MAPE<-MAPE(pred_forest1, forest_test$Item_Outlet_Sales)
+RMSE<-RMSE(pred_forest1, forest_test$Item_Outlet_Sales)
+plot(forest_test$Item_Outlet_Sales, pred_forest1,col='blue', pch=16, ylab = "predicted", xlab = "Actual", main = c("Actual vs predicted plot",i))
+abline(0,1)
+RMSE_Forest1[i]<- RMSE
+MAPE_Forest1[i]<- MAPE
+}
 
 
-#install.packages("standardize", dependencies = TRUE)
-library(standardize)
+RMSE_Forest1
+MAPE_Forest1
+which.min(RMSE_Forest1)
+which.min(MAPE_Forest1)
+
 
 predictors<-print(paste(colnames(newtrain), sep = "+", collapse = '+'))
 
@@ -313,7 +351,7 @@ minValue<- apply(newtrain, 2,min)
 newtrain_scaled<- as.data.frame(scale(newtrain, center = minValue, scale = maxValue - minValue))
 
 #Splitting into train and test
-set.seed(24)
+set.seed(0)
 spl<- sample.split(newtrain_scaled$Item_Outlet_Sales, SplitRatio = 0.7)
 
 newtrain_train<- newtrain_scaled[spl==TRUE,]
@@ -321,7 +359,7 @@ newtrain_test<- newtrain_scaled[spl==FALSE,]
 
 
 library(neuralnet)
-set.seed(24)
+set.seed(0)
 
 n<- neuralnet(Item_Outlet_Sales~Item_Weight+Item_Visibility+Item_MRP+
                 Store_Age+Item_Fat_Content_Regular+Item_Type_Soft_Drinks
@@ -334,7 +372,7 @@ n<- neuralnet(Item_Outlet_Sales~Item_Weight+Item_Visibility+Item_MRP+
               +Outlet_Size_High+Outlet_Size_Small+
                 Outlet_Location_Type_Tier_3+Outlet_Location_Type_Tier_2+
                 Outlet_Type_Supermarket_Type2+Outlet_Type_Grocery_Store+
-                Outlet_Type_Supermarket_Type3, data = newtrain_train, hidden = c(2,1), linear.output = TRUE)
+                Outlet_Type_Supermarket_Type3, data = newtrain_train, hidden = c(2,2,1), linear.output = TRUE)
 
 plot(n)
 
@@ -351,17 +389,119 @@ MAPE(predictions, actual_test)
 RMSE(predictions, actual_test)
 
 plot(actual_test, predictions, col='blue', pch=16, ylab = "predicted", xlab = "Actual")
-
 abline(0,1)
 
 
-colnames(newtrain_scaled)
-predicted<- compute(n,newtrain_scaled[,-4])
-predicted<- predicted$net.result*(maxValue[4]- minValue[4]) + minValue[4]
+#Linear regression
+Rsquares<- list()
+for (i in 1:(length(colnames(forest_train))-1)) {
+  important_cols<-as.integer(rownames(head(variableimportance,i)))
+  important_forest_train<- subset(forest_train[,-4], select = c(important_cols))
+  important_forest_train<- cbind(important_forest_train, forest_train[,4])
+
+  fit<- lm(data = important_forest_train, formula = Item_Outlet_Sales~.)
+a<-summary(fit)
+ Rsquares[i]<-a$adj.r.squared
+}
+Rsquares
+
+i=10
+important_cols<-as.integer(rownames(head(variableimportance,i)))
+important_forest_train<- subset(forest_train[,-4], select = c(important_cols))
+important_forest_train<- cbind(important_forest_train, forest_train[,4])
 
 
-results<-data.frame(newtrain$Item_Outlet_Sales, pred_forest1,predicted)
-results$errors_forest<- results$newtrain.Item_Outlet_Sales - results$pred_forest1
-results$errors_neuralnet<- results$newtrain.Item_Outlet_Sales - results$predicted
+attach(important_forest_train)
+fit<- lm(data = important_forest_train, formula = Item_Outlet_Sales~.)
+summary(fit)
+
+
+fit2<-lm(data = important_forest_train, formula = Item_Outlet_Sales~Item_MRP+ 
+           Outlet_Type_Grocery_Store+Item_Visibility+Store_Age
+         +Outlet_Type_Supermarket_Type3+Item_Fat_Content_Regular+
+           Outlet_Location_Type_Tier_3 )
+summary(fit2)
+
+par(mfrow=c(2,2))
+plot(fit2)
+
+#multicolinearity check
+vif(fit2)
+
+#Autocorrelation check
+durbinWatsonTest(fit2)
+
+#Homoskedesticity check
+bptest(fit2)
+
+ncvTest(fit2)# Serious Hetroskedesticity found , HEll!
+
+# library(caret)
+# #getting boxCox transformation
+# 
+# BCMod<- BoxCoxTrans(important_forest_train$Item_Outlet_Sales)
+# 
+# predict(BCMod, important_forest_train$Item_Outlet_Sales)
+# 
+# important_forest_train<- cbind(important_forest_train, Item_Outlet_Sales_BCmod = predict(BCMod,important_forest_train$Item_Outlet_Sales))
+# 
+# fit<- lm(data = important_forest_train, formula = Item_Outlet_Sales_BCmod~.)
+# summary(fit)
+# 
+# 
+# fit2<-lm(data = important_forest_train, formula = Item_Outlet_Sales_BCmod~Item_MRP+ 
+#            Outlet_Type_Grocery_Store+Store_Age
+#          +Outlet_Type_Supermarket_Type3+Item_Fat_Content_Regular+Outlet_Location_Type_Tier_3 )
+# 
+# summary(fit2)
+# 
+# par(mfrow=c(2,2))
+# plot(fit2)
+# 
+# #multicolinearity check
+# vif(fit2)
+# 
+# #Autocorrelation check
+# durbinWatsonTest(fit2)
+# 
+# #Homoskedesticity check
+# bptest(fit2)
+# 
+# ncvTest(fit2)# Serious Hetroskedesticity found , HEll!
+# 
+
+
+###########################################################################
+fit2<-lm(data = important_forest_train, formula = Item_Outlet_Sales~Item_MRP+ 
+           Outlet_Type_Grocery_Store+Item_Visibility+Store_Age
+         +Outlet_Type_Supermarket_Type3+Item_Fat_Content_Regular+
+           Outlet_Location_Type_Tier_3 )
+
+
+
+important_forest_train$resi <- fit2$residuals
+colnames(important_forest_train)
+varfunc <- lm(log(resi^2) ~ log(Item_MRP)+log(Store_Age), data = important_forest_train)
+summary(varfunc)
+important_forest_train$varfunc <- exp(varfunc$fitted.values)
+
+fit3 <- lm(Item_Outlet_Sales~Item_MRP+ 
+             Outlet_Type_Grocery_Store+Item_Visibility+Store_Age
+           +Outlet_Type_Supermarket_Type3+Item_Fat_Content_Regular+
+             Outlet_Location_Type_Tier_3  , weights = 1/sqrt(varfunc), data = important_forest_train)
+
+summary(fit3)
+
+
+
+
+par(mfrow=c(2,2))
+plot(fit3)
+
+
+#Homoskedesticity check
+bptest(fit3)
+
+ncvTest(fit3)# Serious Hetroskedesticity found , HEll!
 
 
